@@ -26,7 +26,7 @@ class SSHWrapperParamiko(SSHWrapper):
 
         self._client = paramiko.SSHClient()
         self._client.load_system_host_keys()
-        self._client.set_missing_host_policy(paramiko.WarningPolicy())
+        self._client.set_missing_host_key_policy(paramiko.WarningPolicy())
 
         # Parse SSH config
         ssh_config = paramiko.SSHConfig()
