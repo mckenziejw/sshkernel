@@ -128,10 +128,42 @@ class SSHWrapperParamiko(SSHWrapper):
         self._shell_channel.send('\x15\n')  # Ctrl+U + newline
         return self._read_until_prompt()
 
+    def test_completion(self, cmd, print_function):
+        """Test completion functionality directly"""
+        try:
+            print_function("[DEBUG] Starting completion test")
+            
+            # First ensure we're at a clean prompt
+            output = self._ensure_clean_prompt()
+            print_function(f"[DEBUG] Current prompt:\n{output}")
+            
+            # Send the command with ?
+            print_function(f"[DEBUG] Sending command: {cmd}?")
+            self._shell_channel.send(cmd + '?\n')
+            
+            # Read the response
+            output = self._read_until_prompt()
+            print_function(f"[DEBUG] Response from device:\n{output}")
+            
+            # Clean up
+            self._shell_channel.send('\x15\n')  # Ctrl+U + newline
+            self._read_until_prompt()
+            
+            return True
+            
+        except Exception as e:
+            print_function(f"[DEBUG] Test error: {str(e)}\n{traceback.format_exc()}")
+            return False
+
     def exec_command(self, cmd, print_function):
         """Execute command and stream output"""
         if not self.isconnected():
             raise Exception("Not connected")
+
+        # Special handling for test command
+        if cmd.startswith("__test_completion"):
+            test_cmd = cmd.split(" ", 1)[1] if " " in cmd else ""
+            return 0 if self.test_completion(test_cmd, print_function) else 1
 
         # Clean the command
         cmd = cmd.strip()
