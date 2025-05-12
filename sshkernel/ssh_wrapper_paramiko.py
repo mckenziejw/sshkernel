@@ -87,12 +87,17 @@ class SSHWrapperParamiko(SSHWrapper):
                 chunk = self._shell_channel.recv(4096).decode('utf-8', errors='replace')
                 buffer += chunk
                 
-                # Check for various Junos prompts
-                if re.search(r'[%>#]\s*$', buffer):
+                # Check for various Junos prompts:
+                # - Operational mode: user@host>
+                # - Configuration mode: user@host#
+                # - Configuration mode with hierarchy: [edit interfaces ge-0/0/0]user@host#
+                # - Loading/error states: {master:0}user@host%
+                if re.search(r'(?:\{master:\d+\})?(?:\[edit[^\]]*\])?[a-zA-Z0-9\-_]+@[a-zA-Z0-9\-_]+[%>#]\s*$', buffer):
                     return buffer
                 
             if time.time() - start_time > timeout:
-                raise TimeoutError("Timeout waiting for prompt")
+                # Include the buffer in the timeout error to help debugging
+                raise TimeoutError(f"Timeout waiting for prompt. Buffer received: {buffer}")
                 
             time.sleep(0.1)
 
@@ -101,24 +106,31 @@ class SSHWrapperParamiko(SSHWrapper):
         if not self.isconnected():
             raise Exception("Not connected")
 
+        print_function(f"[ssh] Sending command: {cmd}\n")
+        
         # Send command
         self._shell_channel.send(cmd + '\n')
         
-        # Read response
-        output = self._read_until_prompt()
-        
-        # Remove the command echo and trailing prompt
-        lines = output.split('\n')
-        if lines and lines[0].strip() == cmd.strip():
-            lines = lines[1:]
-        if lines and re.search(r'[%>#]\s*$', lines[-1]):
-            lines = lines[:-1]
-        
-        # Print output
-        for line in lines:
-            print_function(line + '\n')
-
-        return 0  # Since we can't reliably get exit codes in this mode
+        try:
+            # Read response
+            output = self._read_until_prompt()
+            
+            # Remove the command echo and trailing prompt
+            lines = output.split('\n')
+            if lines and lines[0].strip() == cmd.strip():
+                lines = lines[1:]
+            if lines and re.search(r'(?:\{master:\d+\})?(?:\[edit[^\]]*\])?[a-zA-Z0-9\-_]+@[a-zA-Z0-9\-_]+[%>#]\s*$', lines[-1]):
+                lines = lines[:-1]
+            
+            # Print output
+            for line in lines:
+                print_function(line + '\n')
+            
+            return 0  # Since we can't reliably get exit codes in this mode
+            
+        except TimeoutError as e:
+            print_function(f"[ssh] Error: {str(e)}\n")
+            return 1
 
     def close(self):
         """Close the SSH connection"""
