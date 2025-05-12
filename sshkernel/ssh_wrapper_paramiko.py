@@ -269,7 +269,9 @@ class SSHWrapperParamiko(SSHWrapper):
                     if not word.startswith('<') and not word.endswith('>'):
                         # Remove any trailing characters that might have been added
                         word = word.rstrip('?')
-                        completions.append(word)
+                        # For partial matches, keep the full word
+                        if word.startswith(partial_cmd):
+                            completions.append(word)
             
             # Clear any remaining ? and buffer
             self._shell_channel.send('\x15\n')  # Ctrl+U + newline to clear line
@@ -312,14 +314,17 @@ class SSHWrapperParamiko(SSHWrapper):
             # Clean the input text
             text = text.strip()
             
-            # Send the completion request
+            # Get all possible completions
             completions = self._get_completions(text)
             
-            # Filter completions that match our text and clean them
+            # Return all completions that match the text prefix
+            # This allows Jupyter to handle the completion display
             matches = []
             for comp in completions:
                 comp = comp.strip()
-                if comp.startswith(text):
+                # Only match if the completion starts with our text
+                # and the completion is different from our text
+                if comp.startswith(text) and comp != text:
                     matches.append(comp)
             
             print(f"[DEBUG] Final filtered matches: {matches}")
