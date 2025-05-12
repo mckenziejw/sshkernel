@@ -280,11 +280,7 @@ class SSHWrapperParamiko(SSHWrapper):
             
             # Send the partial command with ?
             print_function(f"[DEBUG] Trying ? completion with: {partial_cmd}?")
-            # Send each character with a small delay to ensure it's received correctly
-            for char in partial_cmd:
-                self._shell_channel.send(char)
-                time.sleep(0.1)
-            self._shell_channel.send('?\n')
+            self._shell_channel.send(partial_cmd + '?\n')
             
             # Read the completion suggestions
             output = self._read_until_prompt()
@@ -295,34 +291,42 @@ class SSHWrapperParamiko(SSHWrapper):
             completions = []
             
             print_function(f"[DEBUG] Processing {len(lines)} lines")
+            in_completions = False
             # Skip the first line (echo of our command) and last line (prompt)
             for i, line in enumerate(lines[1:-1]):
                 print_function(f"[DEBUG] Processing line {i+1}: '{line}'")
-                # Skip empty lines and completion headers
+                
+                # Skip empty lines
                 if not line.strip():
                     print_function(f"[DEBUG] Skipping empty line")
                     continue
-                if any(x in line for x in [
-                    "Possible completions:",
-                    "Possible pattern completions:",
-                    "[",  # Skip hierarchy indicators
-                    ">"   # Skip command continuation indicators
-                ]):
-                    print_function(f"[DEBUG] Skipping header/indicator line: {line}")
+                
+                # Check for completion section start
+                if "Possible completions:" in line:
+                    print_function(f"[DEBUG] Found completions section")
+                    in_completions = True
                     continue
                 
-                # Split on whitespace and take first word, handling descriptions
-                parts = line.strip().split(None, 1)
+                # Skip if we haven't reached completions yet
+                if not in_completions:
+                    continue
+                
+                # Stop if we hit an error message or prompt
+                if any(x in line.lower() for x in ["error:", "syntax error:", "[edit]"]):
+                    print_function(f"[DEBUG] Found end of completions: {line}")
+                    break
+                
+                # Parse the completion line
+                # Format is typically: "> command           Description"
+                line = line.strip()
+                if line.startswith('>'):
+                    line = line[1:].strip()  # Remove '>' prefix
+                
+                # Split on multiple spaces to separate command from description
+                parts = line.split('  ', 1)
                 if parts:
                     word = parts[0].strip()
                     print_function(f"[DEBUG] Found word: '{word}'")
-                    # Only add if it's a valid completion (not a parameter hint)
-                    if word.startswith('<') or word.endswith('>'):
-                        print_function(f"[DEBUG] Skipping parameter hint: {word}")
-                        continue
-
-                    # Remove any trailing characters that might have been added
-                    word = word.rstrip('?')
                     
                     # Get the base command (everything up to the last space)
                     base_cmd = partial_cmd.rsplit(' ', 1)[0] if ' ' in partial_cmd else ''
@@ -330,21 +334,12 @@ class SSHWrapperParamiko(SSHWrapper):
                     
                     print_function(f"[DEBUG] Base command: '{base_cmd}', Current word: '{current_word}'")
                     
-                    # In configuration mode, we might get full paths like "interfaces ge-0/0/0"
-                    # Split these into parts and check if any part matches our current word
-                    word_parts = word.split()
-                    matching_part = None
-                    for part in word_parts:
-                        if part.startswith(current_word):
-                            matching_part = part
-                            break
-                    
-                    if matching_part:
-                        print_function(f"[DEBUG] Found matching part: '{matching_part}'")
+                    # Check if the word matches our current word
+                    if word.startswith(current_word):
                         if base_cmd:
-                            full_completion = f"{base_cmd} {matching_part}"
+                            full_completion = f"{base_cmd} {word}"
                         else:
-                            full_completion = matching_part
+                            full_completion = word
                         print_function(f"[DEBUG] Adding completion: '{full_completion}'")
                         completions.append(full_completion)
             
