@@ -121,10 +121,18 @@ class SSHWrapperParamiko(SSHWrapper):
                 
             time.sleep(0.1)
 
+    def _ensure_clean_prompt(self):
+        """Ensure we're at a clean prompt by clearing the line and sending a newline"""
+        self._shell_channel.send('\x15\n')  # Ctrl+U + newline
+        return self._read_until_prompt()
+
     def exec_command(self, cmd, print_function):
         """Execute command and stream output"""
         if not self.isconnected():
             raise Exception("Not connected")
+
+        # Ensure we start with a clean prompt
+        self._ensure_clean_prompt()
 
         print_function(f"[ssh] Sending command: {cmd}\n")
         
@@ -150,6 +158,8 @@ class SSHWrapperParamiko(SSHWrapper):
             
         except TimeoutError as e:
             print_function(f"[ssh] Error: {str(e)}\n")
+            # Try to get back to a clean state
+            self._ensure_clean_prompt()
             return 1
 
     def close(self):
@@ -177,35 +187,47 @@ class SSHWrapperParamiko(SSHWrapper):
 
     def _get_completions(self, partial_cmd):
         """Get completion suggestions for a partial command"""
-        # Save current buffer and send completion request
-        self._shell_channel.send(partial_cmd + '?\n')
-        
-        # Read the completion suggestions
-        output = self._read_until_prompt()
-        
-        # Parse the completion output
-        lines = output.split('\n')
-        completions = []
-        
-        # Skip the first line (echo of our command) and last line (prompt)
-        for line in lines[1:-1]:
-            # Skip empty lines
-            if not line.strip():
-                continue
+        try:
+            # Ensure we start with a clean prompt
+            self._ensure_clean_prompt()
             
-            # Handle possible formats:
-            # 1. Simple completion: "term    Complete word"
-            # 2. Description only: "  Description of options"
-            # 3. Multiple per line: "term1  term2  term3"
-            parts = line.strip().split()
-            if parts:
-                # If line starts with spaces, it's a description
-                if line.startswith('    '):
+            # Send completion request
+            self._shell_channel.send(partial_cmd + '?\n')
+            
+            # Read the completion suggestions
+            output = self._read_until_prompt()
+            
+            # Parse the completion output
+            lines = output.split('\n')
+            completions = []
+            
+            # Skip the first line (echo of our command) and last line (prompt)
+            for line in lines[1:-1]:
+                # Skip empty lines
+                if not line.strip():
                     continue
-                # Add all non-description words as completions
-                completions.extend([p for p in parts if not p.startswith('<') and not p.endswith('>')])
-        
-        return completions
+                
+                # Handle possible formats:
+                # 1. Simple completion: "term    Complete word"
+                # 2. Description only: "  Description of options"
+                # 3. Multiple per line: "term1  term2  term3"
+                parts = line.strip().split()
+                if parts:
+                    # If line starts with spaces, it's a description
+                    if line.startswith('    '):
+                        continue
+                    # Add all non-description words as completions
+                    completions.extend([p for p in parts if not p.startswith('<') and not p.endswith('>')])
+            
+            # Ensure we're back at a clean prompt
+            self._ensure_clean_prompt()
+            
+            return completions
+            
+        except Exception as e:
+            # If anything goes wrong, try to get back to a clean state
+            self._ensure_clean_prompt()
+            return []
 
     def get_completions(self, text):
         """Get completion suggestions for the current text"""
