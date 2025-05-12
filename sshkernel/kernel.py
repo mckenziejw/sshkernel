@@ -141,6 +141,10 @@ class SSHKernel(MetaKernel):
     # Implement ipykernel method
     def do_complete(self, code, cursor_pos):
         """Handle code completion requests."""
+        # Basic debug to file to verify we're being called
+        with open('/tmp/kernel_debug.log', 'a') as f:
+            f.write(f"\nCompletion request: code='{code}', cursor_pos={cursor_pos}\n")
+
         default = {
             "matches": [],
             "cursor_start": 0,
@@ -153,16 +157,22 @@ class SSHKernel(MetaKernel):
             self.assert_connected()
         except SSHKernelNotConnectedException:
             self.log.error("not connected")
+            with open('/tmp/kernel_debug.log', 'a') as f:
+                f.write("Not connected\n")
             return default
 
         # Get the current line up to the cursor
         code_current = code[:cursor_pos]
         if not code_current:
+            with open('/tmp/kernel_debug.log', 'a') as f:
+                f.write("No current code\n")
             return default
 
         # Get the last token (word) that we're trying to complete
         tokens = code_current.replace(";", " ").split()
         if not tokens:
+            with open('/tmp/kernel_debug.log', 'a') as f:
+                f.write("No tokens\n")
             return default
 
         # Get the full command up to the cursor for context
@@ -170,10 +180,16 @@ class SSHKernel(MetaKernel):
         token = tokens[-1]
         token_start = code_current.rindex(token)
 
+        with open('/tmp/kernel_debug.log', 'a') as f:
+            f.write(f"Command context: '{command_context}'\n")
+
         self.Print(f"[DEBUG] Attempting completion for command: '{command_context}'")
 
         # Get completions from the SSH wrapper
         matches = self.sshwrapper.get_completions(command_context, self.Print)
+
+        with open('/tmp/kernel_debug.log', 'a') as f:
+            f.write(f"Got matches: {matches}\n")
 
         self.Print(f"[DEBUG] Got raw matches: {matches}")
 
@@ -190,6 +206,8 @@ class SSHKernel(MetaKernel):
 
             if valid_matches:
                 self.Print(f"[DEBUG] Final valid matches: {valid_matches}")
+                with open('/tmp/kernel_debug.log', 'a') as f:
+                    f.write(f"Returning valid matches: {valid_matches}\n")
                 return {
                     "matches": valid_matches,
                     "cursor_start": cursor_pos,  # Start from cursor position
@@ -199,6 +217,8 @@ class SSHKernel(MetaKernel):
                 }
 
         self.Print("[DEBUG] No valid completions found")
+        with open('/tmp/kernel_debug.log', 'a') as f:
+            f.write("No valid completions\n")
         return default
 
     def restart_kernel(self):
@@ -220,3 +240,17 @@ class SSHKernel(MetaKernel):
         if not self.sshwrapper.isconnected():
             self.Error("[ssh] Not connected.")
             raise SSHKernelNotConnectedException
+
+    def complete_code(self, code, cursor_pos):
+        """Override MetaKernel method to ensure our completion is called"""
+        with open('/tmp/kernel_debug.log', 'a') as f:
+            f.write(f"\nComplete_code called: code='{code}', cursor_pos={cursor_pos}\n")
+        
+        return self.do_complete(code, cursor_pos)
+
+    def handle_complete_request(self, stream, ident, parent):
+        """Override MetaKernel method to ensure completion requests are handled"""
+        with open('/tmp/kernel_debug.log', 'a') as f:
+            f.write("\nHandle_complete_request called\n")
+        
+        super().handle_complete_request(stream, ident, parent)
