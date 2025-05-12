@@ -8,48 +8,79 @@ import traceback
 
 class SSHWrapperParamiko(SSHWrapper):
     """
-    A direct Paramiko SSH client wrapper.
-    SSHWrapperParamiko wraps ssh client without requiring bash shell.
+    🚀 The Paramiko-powered SSH Wizard!
+    
+    This class is like a magical portal that connects your Jupyter notebook to remote servers.
+    It's built on top of Paramiko (the Swiss Army knife of SSH in Python) and adds some
+    special sauce to make it work seamlessly with Jupyter.
+    
+    Features:
+    - 🔐 Handles SSH authentication like a pro
+    - 🖥️ Manages shell sessions with style
+    - 🎯 Supports command completion for Junos devices
+    - 🎭 Handles various prompt types and output formats
+    
+    Think of it as your personal SSH butler - always ready to serve your remote execution needs!
     """
 
     def __init__(self, envdelta_init=dict()):
+        """
+        🎬 Initialize our SSH butler
+        
+        Args:
+            envdelta_init: A dict of environment variables to set on the remote server
+                          (because sometimes we need to set the mood just right)
+        """
         self.envdelta_init = envdelta_init
-        self._client = None
-        self._channel = None
-        self.__connected = False
-        self._host = ""
-        self._cwd = None
-        self._env = {}
-        self._shell_channel = None
-        self._shell_buffer = ""
+        self._client = None         # Our SSH client (waiting to be summoned)
+        self._channel = None        # The communication channel (like a tin can phone)
+        self.__connected = False    # Are we connected? (initially, we're just dreaming)
+        self._host = ""            # The remote host (our destination)
+        self._cwd = None           # Current working directory (where are we?)
+        self._env = {}             # Environment variables (the weather conditions)
+        self._shell_channel = None  # Interactive shell channel (for real-time chat)
+        self._shell_buffer = ""     # Buffer for shell output (our memory pad)
 
     def connect(self, host):
-        """Connect to remote host using SSH config"""
+        """
+        🔌 Establish connection to the remote server
+        
+        This is where the magic happens! We:
+        1. Load SSH config (like reading a spellbook)
+        2. Parse the host (making sure we know where we're going)
+        3. Set up the connection (casting the teleportation spell)
+        4. Configure the shell (making ourselves at home)
+        
+        Args:
+            host: The remote host to connect to (can be user@host format)
+        """
+        # Close any existing connections (clean slate policy!)
         if self._client:
             self.close()
 
+        # 🎭 Create and configure our SSH client
         self._client = paramiko.SSHClient()
         self._client.load_system_host_keys()
         self._client.set_missing_host_key_policy(paramiko.WarningPolicy())
 
-        # Parse SSH config
+        # 📚 Read the SSH config file (our travel guide)
         ssh_config = paramiko.SSHConfig()
         user_config_file = os.path.expanduser("~/.ssh/config")
         if os.path.exists(user_config_file):
             with open(user_config_file) as f:
                 ssh_config.parse(f)
 
-        # Extract username from host if present (user@host format)
+        # 🔍 Check if username is in the host string (user@host)
         username_from_host = None
         m = re.search("([^@]+)@(.*)", host)
         if m:
             username_from_host = m.group(1)
             host = m.group(2)
 
-        # Get host config
+        # 🎯 Get the host's configuration
         cfg = ssh_config.lookup(host)
         
-        # Build connection parameters
+        # 🏗️ Build our connection parameters
         hostname = cfg.get('hostname', host)
         username = username_from_host or cfg.get('user')
         port = int(cfg.get('port', 22))
@@ -57,7 +88,7 @@ class SSHWrapperParamiko(SSHWrapper):
         if isinstance(key_filename, list):
             key_filename = key_filename[0]
 
-        # Connect
+        # 🚀 Launch the connection!
         self._client.connect(
             hostname=hostname,
             username=username,
@@ -65,31 +96,52 @@ class SSHWrapperParamiko(SSHWrapper):
             key_filename=key_filename,
         )
 
+        # 🎉 Set up our cozy environment
         self.__connected = True
         self._host = host
         
-        # Initialize environment
+        # Initialize environment (making ourselves comfortable)
         self._env.update(self.envdelta_init)
-        self._env['PAGER'] = 'cat'  # Prevent paging
+        self._env['PAGER'] = 'cat'  # No paging, we want it all at once!
 
-        # Set up interactive shell
+        # 🎭 Set up our interactive shell
         self._shell_channel = self._client.invoke_shell()
-        # Wait for initial prompt
+        # Wait for the welcome party
         time.sleep(2)
         self._read_until_prompt()
 
-        # Configure Junos CLI settings
+        # 🎨 Configure Junos CLI settings (making it work just right)
         self._shell_channel.send('set cli complete-on-space off\n')
         self._read_until_prompt()
         self._shell_channel.send('set cli screen-length 0\n')
         self._read_until_prompt()
         
-        # Also send a newline to ensure we have a clean prompt
+        # Send a newline for good measure (like clearing your throat)
         self._shell_channel.send('\n')
         self._read_until_prompt()
 
     def _read_until_prompt(self, timeout=30):
-        """Read from shell until a prompt is found"""
+        """
+        📖 Read shell output until we see a prompt
+        
+        This is like being a patient listener - we keep reading until the remote
+        server says "I'm ready for your next command" (by showing a prompt).
+        
+        We handle various types of prompts:
+        - 👉 Regular prompt (user@host>)
+        - 🔧 Config mode (user@host#)
+        - 📝 Config with hierarchy ([edit interfaces]user@host#)
+        - 🎭 Special states ({master:0}user@host%)
+        
+        Args:
+            timeout: How long to wait (in seconds) before giving up
+            
+        Returns:
+            str: Everything we read until we found a prompt
+            
+        Raises:
+            TimeoutError: If we don't see a prompt within timeout seconds
+        """
         buffer = ""
         start_time = time.time()
         
@@ -98,54 +150,70 @@ class SSHWrapperParamiko(SSHWrapper):
                 chunk = self._shell_channel.recv(4096).decode('utf-8', errors='replace')
                 buffer += chunk
                 
-                # Check for "More" prompt and handle it
+                # 📜 Handle "More" prompts (because some outputs are chatty)
                 if buffer.endswith('---(more)---'):
-                    self._shell_channel.send(' ')  # Send space to show more
-                    buffer = buffer[:-12]  # Remove the (more) prompt
+                    self._shell_channel.send(' ')  # "Please continue..."
+                    buffer = buffer[:-12]  # Remove the prompt
                     continue
                 elif buffer.endswith('---(more 100%)---'):
-                    self._shell_channel.send(' ')  # Send space to continue
-                    buffer = buffer[:-17]  # Remove the (more 100%) prompt
+                    self._shell_channel.send(' ')  # "Almost there..."
+                    buffer = buffer[:-17]  # Remove the prompt
                     continue
                 
-                # Check for various Junos prompts:
-                # - Operational mode: user@host>
-                # - Configuration mode: user@host#
-                # - Configuration mode with hierarchy: [edit interfaces ge-0/0/0]user@host#
-                # - Loading/error states: {master:0}user@host%
-                # - Configuration mode with changes: user@host# (pending changes)
+                # 🔍 Look for various Junos prompts
                 if re.search(r'(?:\{master:\d+\})?(?:\[edit[^\]]*\])?[a-zA-Z0-9\-_]+@[a-zA-Z0-9\-_]+[%>#](?:\s+\(pending changes\))?\s*$', buffer):
                     return buffer
                 
+            # ⏰ Check if we've waited too long
             if time.time() - start_time > timeout:
-                # Include the buffer in the timeout error to help debugging
                 raise TimeoutError(f"Timeout waiting for prompt. Buffer received: {buffer}")
                 
-            time.sleep(0.1)
+            time.sleep(0.1)  # Take a short breather
 
     def _ensure_clean_prompt(self):
-        """Ensure we're at a clean prompt by clearing the line and sending a newline"""
+        """
+        🧹 Make sure we're starting fresh
+        
+        Sometimes you need to clear the slate before starting something new.
+        We send Ctrl+U (clear line) and a newline to make sure we're at a
+        clean prompt.
+        
+        Returns:
+            str: The prompt we got back
+        """
         self._shell_channel.send('\x15\n')  # Ctrl+U + newline
         return self._read_until_prompt()
 
     def test_completion(self, cmd, print_function):
-        """Test completion functionality directly"""
+        """
+        🧪 Test the completion functionality
+        
+        This is our completion laboratory where we can experiment with
+        completion behavior. It's like having a sandbox to play in!
+        
+        Args:
+            cmd: The command to test completion with
+            print_function: Function to use for printing debug info
+            
+        Returns:
+            bool: True if test succeeded, False if something went wrong
+        """
         try:
             print_function("[DEBUG] Starting completion test")
             
-            # First ensure we're at a clean prompt
+            # Start with a clean slate
             output = self._ensure_clean_prompt()
             print_function(f"[DEBUG] Current prompt:\n{output}")
             
-            # Send the command with ?
+            # Try the completion
             print_function(f"[DEBUG] Sending command: {cmd}?")
             self._shell_channel.send(cmd + '?\n')
             
-            # Read the response
+            # See what we got back
             output = self._read_until_prompt()
             print_function(f"[DEBUG] Response from device:\n{output}")
             
-            # Clean up
+            # Clean up after ourselves
             self._shell_channel.send('\x15\n')  # Ctrl+U + newline
             self._read_until_prompt()
             
@@ -156,34 +224,46 @@ class SSHWrapperParamiko(SSHWrapper):
             return False
 
     def exec_command(self, cmd, print_function):
-        """Execute command and stream output"""
+        """
+        🎮 Execute a command on the remote server
+        
+        This is where we actually run commands! Think of it as pressing
+        the "Do it!" button for your remote commands.
+        
+        Args:
+            cmd: The command to execute
+            print_function: Function to use for output
+            
+        Returns:
+            int: 0 if all went well, 1 if there were problems
+        """
         if not self.isconnected():
             raise Exception("Not connected")
 
-        # Special handling for test command
+        # 🧪 Special handling for test commands
         if cmd.startswith("__test_completion"):
             test_cmd = cmd.split(" ", 1)[1] if " " in cmd else ""
             return 0 if self.test_completion(test_cmd, print_function) else 1
 
-        # Clean the command
+        # Clean up the command
         cmd = cmd.strip()
         print_function(f"[ssh] Sending command: {cmd}\n")
         
-        # Send command with a newline
+        # Send it off!
         self._shell_channel.send(cmd + '\n')
         
         try:
-            # Read response
+            # Get the response
             output = self._read_until_prompt()
             
-            # Remove the command echo and trailing prompt
+            # Clean up the output (remove echoed command and prompt)
             lines = output.split('\n')
             if lines and lines[0].strip() == cmd.strip():
                 lines = lines[1:]
             if lines and re.search(r'(?:\{master:\d+\})?(?:\[edit[^\]]*\])?[a-zA-Z0-9\-_]+@[a-zA-Z0-9\-_]+[%>#]\s*$', lines[-1]):
                 lines = lines[:-1]
             
-            # Check for error messages
+            # Look for error messages
             error_patterns = [
                 r"^\s*error:",
                 r"^\s*unknown command\.",
@@ -197,19 +277,23 @@ class SSHWrapperParamiko(SSHWrapper):
                     has_error = True
                 print_function(line + '\n')
             
-            # Ensure we're at a clean prompt after command execution
+            # Make sure we're ready for the next command
             self._ensure_clean_prompt()
             
             return 1 if has_error else 0
             
         except TimeoutError as e:
             print_function(f"[ssh] Error: {str(e)}\n")
-            # Ensure clean prompt on error
             self._ensure_clean_prompt()
             return 1
 
     def close(self):
-        """Close the SSH connection"""
+        """
+        👋 Close the SSH connection
+        
+        All good things must come to an end. This method cleans up our
+        SSH connection and says goodbye to the remote server.
+        """
         self.__connected = False
         if self._shell_channel:
             self._shell_channel.close()
@@ -219,17 +303,25 @@ class SSHWrapperParamiko(SSHWrapper):
         self._client = None
 
     def interrupt(self):
-        """Interrupt the current command"""
+        """
+        🛑 Interrupt the current command
+        
+        Sometimes you need to tell a command "That's enough!" This method
+        sends a Ctrl+C to the remote server to stop the current command.
+        """
         if self._shell_channel:
-            # Send Ctrl+C
-            self._shell_channel.send('\x03')
-            time.sleep(0.1)
-            # Clear any remaining output
-            self._read_until_prompt()
+            self._shell_channel.send('\x03')  # Ctrl+C
+            time.sleep(0.1)  # Give it a moment
+            self._read_until_prompt()  # Clean up
 
     def isconnected(self):
-        """Check if connected to remote host"""
-        return self.__connected 
+        """
+        🔍 Check if we're connected
+        
+        Returns:
+            bool: True if we're connected, False if we're not
+        """
+        return self.__connected
 
     def _get_completions_cli_command(self, partial_cmd):
         """Get completions using 'show cli complete-on' command"""
