@@ -131,12 +131,9 @@ class SSHWrapperParamiko(SSHWrapper):
         if not self.isconnected():
             raise Exception("Not connected")
 
-        # Ensure we start with a clean prompt
-        self._ensure_clean_prompt()
-
         print_function(f"[ssh] Sending command: {cmd}\n")
         
-        # Send command
+        # Send command with a newline
         self._shell_channel.send(cmd + '\n')
         
         try:
@@ -150,16 +147,24 @@ class SSHWrapperParamiko(SSHWrapper):
             if lines and re.search(r'(?:\{master:\d+\})?(?:\[edit[^\]]*\])?[a-zA-Z0-9\-_]+@[a-zA-Z0-9\-_]+[%>#]\s*$', lines[-1]):
                 lines = lines[:-1]
             
-            # Print output
+            # Check for error messages
+            error_patterns = [
+                r"^\s*error:",
+                r"^\s*unknown command\.",
+                r"^\s*syntax error\.",
+                r"^\s*invalid command\."
+            ]
+            
+            has_error = False
             for line in lines:
+                if any(re.search(pattern, line.lower()) for pattern in error_patterns):
+                    has_error = True
                 print_function(line + '\n')
             
-            return 0  # Since we can't reliably get exit codes in this mode
+            return 1 if has_error else 0
             
         except TimeoutError as e:
             print_function(f"[ssh] Error: {str(e)}\n")
-            # Try to get back to a clean state
-            self._ensure_clean_prompt()
             return 1
 
     def close(self):
@@ -188,11 +193,9 @@ class SSHWrapperParamiko(SSHWrapper):
     def _get_completions(self, partial_cmd):
         """Get completion suggestions for a partial command"""
         try:
-            # Ensure we start with a clean prompt
-            self._ensure_clean_prompt()
-            
-            # Send completion request
-            self._shell_channel.send(partial_cmd + '?\n')
+            # Use 'show cli complete-on' command instead of '?'
+            completion_cmd = f'show cli complete-on "{partial_cmd}"'
+            self._shell_channel.send(completion_cmd + '\n')
             
             # Read the completion suggestions
             output = self._read_until_prompt()
@@ -207,26 +210,24 @@ class SSHWrapperParamiko(SSHWrapper):
                 if not line.strip():
                     continue
                 
-                # Handle possible formats:
-                # 1. Simple completion: "term    Complete word"
-                # 2. Description only: "  Description of options"
-                # 3. Multiple per line: "term1  term2  term3"
-                parts = line.strip().split()
+                # The output format is typically:
+                # Possible completions:
+                #   word1     Description1
+                #   word2     Description2
+                if line.strip() == "Possible completions:":
+                    continue
+                    
+                # Split on first whitespace sequence
+                parts = line.strip().split(None, 1)
                 if parts:
-                    # If line starts with spaces, it's a description
-                    if line.startswith('    '):
-                        continue
-                    # Add all non-description words as completions
-                    completions.extend([p for p in parts if not p.startswith('<') and not p.endswith('>')])
-            
-            # Ensure we're back at a clean prompt
-            self._ensure_clean_prompt()
+                    # Add the completion word (not the description)
+                    word = parts[0]
+                    if not word.startswith('<') and not word.endswith('>'):
+                        completions.append(word)
             
             return completions
             
         except Exception as e:
-            # If anything goes wrong, try to get back to a clean state
-            self._ensure_clean_prompt()
             return []
 
     def get_completions(self, text):
