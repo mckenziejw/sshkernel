@@ -4,6 +4,7 @@ import time
 import paramiko
 from paramiko import SSHException
 from .ssh_wrapper import SSHWrapper
+import traceback
 
 class SSHWrapperParamiko(SSHWrapper):
     """
@@ -247,11 +248,15 @@ class SSHWrapperParamiko(SSHWrapper):
             
             # Send the partial command with ?
             print_function(f"[DEBUG] Trying ? completion with: {partial_cmd}?")
-            self._shell_channel.send(partial_cmd + '?\n')
+            # Send each character with a small delay to ensure it's received correctly
+            for char in partial_cmd:
+                self._shell_channel.send(char)
+                time.sleep(0.1)
+            self._shell_channel.send('?\n')
             
             # Read the completion suggestions
             output = self._read_until_prompt()
-            print_function(f"[DEBUG] ? completion output:\n{output}")
+            print_function(f"[DEBUG] Raw ? completion output:\n{output}")
             
             # Parse the completion output
             lines = output.split('\n')
@@ -321,7 +326,7 @@ class SSHWrapperParamiko(SSHWrapper):
             return completions
             
         except Exception as e:
-            print_function(f"[DEBUG] ? completion error: {str(e)}")
+            print_function(f"[DEBUG] ? completion error: {str(e)}\n{traceback.format_exc()}")
             # Ensure we clean up even on error
             self._shell_channel.send('\x15\n')  # Ctrl+U + newline
             self._read_until_prompt()
@@ -329,18 +334,38 @@ class SSHWrapperParamiko(SSHWrapper):
             self._read_until_prompt()
             return []
 
-    def _get_completions(self, partial_cmd):
+    def _get_completions(self, partial_cmd, print_function=print):
         """Get completion suggestions for a partial command"""
-        # Try question mark method first since it's more widely supported
-        completions = self._get_completions_question_mark(partial_cmd)
-        
-        # Only if question mark method fails or returns no results, try CLI command method
-        if not completions:
-            completions = self._get_completions_cli_command(partial_cmd)
-            if completions is None:
-                completions = []
-        
-        return completions
+        try:
+            # First ensure we're at a clean prompt
+            output = self._ensure_clean_prompt()
+            print_function(f"[DEBUG] Current prompt: {output.splitlines()[-1] if output else 'No output'}")
+            
+            # Check if we're in configuration mode
+            is_config_mode = '#' in (output.splitlines()[-1] if output else '')
+            print_function(f"[DEBUG] In configuration mode: {is_config_mode}")
+            
+            # In configuration mode, we need to handle the command differently
+            if is_config_mode:
+                # Try without 'set' first if it's already there
+                if partial_cmd.startswith('set '):
+                    base_cmd = partial_cmd[4:]
+                    print_function(f"[DEBUG] Trying completion without 'set': {base_cmd}")
+                    completions = self._get_completions_question_mark(base_cmd, print_function)
+                    if completions:
+                        # Add 'set' back to the completions
+                        return ['set ' + c for c in completions]
+                
+                # If that didn't work or if 'set' wasn't there, try with the full command
+                print_function(f"[DEBUG] Trying completion with full command: {partial_cmd}")
+                return self._get_completions_question_mark(partial_cmd, print_function)
+            else:
+                # In operational mode, just try the command as is
+                return self._get_completions_question_mark(partial_cmd, print_function)
+            
+        except Exception as e:
+            print_function(f"[DEBUG] Completion error in _get_completions: {str(e)}\n{traceback.format_exc()}")
+            return []
 
     def get_completions(self, text, print_function=print):
         """Get completion suggestions for the current text"""
