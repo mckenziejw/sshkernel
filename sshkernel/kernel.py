@@ -178,16 +178,16 @@ class SSHKernel(MetaKernel):
             valid_matches = []
             for match in matches:
                 if match.startswith(command_context) and match != command_context:
-                    # Only add the part that would be completed
+                    # Extract just the completion part (don't include the token)
                     completion = match[len(command_context):].lstrip()
                     if completion:
-                        valid_matches.append(token + completion)
+                        valid_matches.append(completion)
 
             if valid_matches:
                 return {
                     "matches": valid_matches,
-                    "cursor_start": token_start,
-                    "cursor_end": cursor_pos,
+                    "cursor_start": cursor_pos,  # Start from cursor position
+                    "cursor_end": cursor_pos,    # End at cursor position
                     "metadata": dict(),
                     "status": "ok",
                 }

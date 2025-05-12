@@ -112,7 +112,8 @@ class SSHWrapperParamiko(SSHWrapper):
                 # - Configuration mode: user@host#
                 # - Configuration mode with hierarchy: [edit interfaces ge-0/0/0]user@host#
                 # - Loading/error states: {master:0}user@host%
-                if re.search(r'(?:\{master:\d+\})?(?:\[edit[^\]]*\])?[a-zA-Z0-9\-_]+@[a-zA-Z0-9\-_]+[%>#]\s*$', buffer):
+                # - Configuration mode with changes: user@host# (pending changes)
+                if re.search(r'(?:\{master:\d+\})?(?:\[edit[^\]]*\])?[a-zA-Z0-9\-_]+@[a-zA-Z0-9\-_]+[%>#](?:\s+\(pending changes\))?\s*$', buffer):
                     return buffer
                 
             if time.time() - start_time > timeout:
@@ -258,7 +259,7 @@ class SSHWrapperParamiko(SSHWrapper):
             
             # Skip the first line (echo of our command) and last line (prompt)
             for line in lines[1:-1]:
-                if not line.strip() or line.strip() == "Possible completions:":
+                if not line.strip() or line.strip() == "Possible completions:" or "Possible pattern completions:" in line:
                     continue
                 
                 # Split on whitespace and take first word, handling descriptions
@@ -270,8 +271,13 @@ class SSHWrapperParamiko(SSHWrapper):
                         # Remove any trailing characters that might have been added
                         word = word.rstrip('?')
                         # Get the full command by combining context and completion
-                        full_cmd = partial_cmd.rsplit(' ', 1)[0] + ' ' + word
-                        completions.append(full_cmd.strip())
+                        if ' ' in partial_cmd:
+                            # If we have a space, keep the command context
+                            base = partial_cmd.rsplit(' ', 1)[0]
+                            completions.append(f"{base} {word}")
+                        else:
+                            # If no space, just use the word
+                            completions.append(word)
             
             # Clear any remaining ? and buffer
             self._shell_channel.send('\x15\n')  # Ctrl+U + newline to clear line
