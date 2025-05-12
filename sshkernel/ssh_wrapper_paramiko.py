@@ -259,7 +259,13 @@ class SSHWrapperParamiko(SSHWrapper):
             
             # Skip the first line (echo of our command) and last line (prompt)
             for line in lines[1:-1]:
-                if not line.strip() or line.strip() == "Possible completions:" or "Possible pattern completions:" in line:
+                # Skip empty lines and completion headers
+                if not line.strip() or any(x in line for x in [
+                    "Possible completions:",
+                    "Possible pattern completions:",
+                    "[",  # Skip hierarchy indicators
+                    ">"   # Skip command continuation indicators
+                ]):
                     continue
                 
                 # Split on whitespace and take first word, handling descriptions
@@ -270,14 +276,17 @@ class SSHWrapperParamiko(SSHWrapper):
                     if not word.startswith('<') and not word.endswith('>'):
                         # Remove any trailing characters that might have been added
                         word = word.rstrip('?')
-                        # Get the full command by combining context and completion
-                        if ' ' in partial_cmd:
-                            # If we have a space, keep the command context
-                            base = partial_cmd.rsplit(' ', 1)[0]
-                            completions.append(f"{base} {word}")
-                        else:
-                            # If no space, just use the word
-                            completions.append(word)
+                        
+                        # Get the base command (everything up to the last space)
+                        base_cmd = partial_cmd.rsplit(' ', 1)[0] if ' ' in partial_cmd else ''
+                        current_word = partial_cmd.rsplit(' ', 1)[-1] if ' ' in partial_cmd else partial_cmd
+                        
+                        # Only add if the completion extends the current word
+                        if word.startswith(current_word) and word != current_word:
+                            if base_cmd:
+                                completions.append(f"{base_cmd} {word}")
+                            else:
+                                completions.append(word)
             
             # Clear any remaining ? and buffer
             self._shell_channel.send('\x15\n')  # Ctrl+U + newline to clear line
@@ -327,6 +336,7 @@ class SSHWrapperParamiko(SSHWrapper):
             matches = []
             for comp in completions:
                 comp = comp.strip()
+                # Only add completions that extend the current text
                 if comp.startswith(text) and comp != text:
                     matches.append(comp)
             
