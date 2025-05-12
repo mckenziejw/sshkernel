@@ -10,7 +10,7 @@ from metakernel import MetaKernel
 from paramiko.ssh_exception import SSHException
 
 from .exception import SSHKernelNotConnectedException
-from .ssh_wrapper_plumbum import SSHWrapperPlumbum
+from .ssh_wrapper_paramiko import SSHWrapperParamiko
 from .version import __version__
 
 version_pat = re.compile(r"version (\d+(\.\d+)+)")
@@ -25,17 +25,17 @@ class SSHKernel(MetaKernel):
     implementation_version = __version__
     language = "bash"
     language_version = __version__
-    banner = "SSH kernel version {}".format(__version__)
+    banner = "SSH Custom kernel version {}".format(__version__)
     kernel_json = {
         "argv": [sys.executable, "-m", "sshkernel", "-f", "{connection_file}"],
-        "display_name": "SSH",
+        "display_name": "SSH Custom",
         "language": "bash",
         "codemirror_mode": "shell",
         "env": {"PS1": "$"},
-        "name": "ssh",
+        "name": "ssh_custom",
     }
     language_info = {
-        "name": "ssh",
+        "name": "ssh_custom",
         "codemirror_mode": "shell",
         "mimetype": "text/x-sh",
         "file_extension": ".sh",
@@ -61,7 +61,7 @@ class SSHKernel(MetaKernel):
         """
         )
 
-    def __init__(self, sshwrapper_class=SSHWrapperPlumbum, **kwargs):
+    def __init__(self, sshwrapper_class=SSHWrapperParamiko, **kwargs):
         super().__init__(**kwargs)
 
         self.__sshwrapper_class = sshwrapper_class
