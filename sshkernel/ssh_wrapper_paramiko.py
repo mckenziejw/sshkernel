@@ -195,9 +195,11 @@ class SSHWrapperParamiko(SSHWrapper):
         try:
             # Send completion command without quotes
             completion_cmd = f'show cli complete-on "{partial_cmd}"'
+            print(f"[DEBUG] Trying CLI completion with command: {completion_cmd}")
             self._shell_channel.send(completion_cmd + '\n')
             
             output = self._read_until_prompt()
+            print(f"[DEBUG] CLI completion output:\n{output}")
             lines = output.split('\n')
             completions = []
             
@@ -217,6 +219,7 @@ class SSHWrapperParamiko(SSHWrapper):
             # Ensure we're at a clean prompt
             self._ensure_clean_prompt()
             
+            print(f"[DEBUG] CLI completions found: {completions}")
             # If we got completions and no error message, return them
             if completions and not any("error: unknown command" in line.lower() for line in lines):
                 return completions
@@ -224,6 +227,7 @@ class SSHWrapperParamiko(SSHWrapper):
             return None  # Signal to try fallback method
             
         except Exception as e:
+            print(f"[DEBUG] CLI completion error: {str(e)}")
             self._ensure_clean_prompt()  # Always ensure clean prompt on error
             return None  # Signal to try fallback method
 
@@ -234,10 +238,12 @@ class SSHWrapperParamiko(SSHWrapper):
             self._ensure_clean_prompt()
             
             # Send the partial command with ?
+            print(f"[DEBUG] Trying ? completion with: {partial_cmd}?")
             self._shell_channel.send(partial_cmd + '?\n')
             
             # Read the completion suggestions
             output = self._read_until_prompt()
+            print(f"[DEBUG] ? completion output:\n{output}")
             
             # Parse the completion output
             lines = output.split('\n')
@@ -259,20 +265,24 @@ class SSHWrapperParamiko(SSHWrapper):
             # Clear any remaining ? from the buffer and ensure clean prompt
             self._ensure_clean_prompt()
             
+            print(f"[DEBUG] ? completions found: {completions}")
             return completions
             
         except Exception as e:
+            print(f"[DEBUG] ? completion error: {str(e)}")
             self._ensure_clean_prompt()  # Always ensure clean prompt on error
             return []
 
     def _get_completions(self, partial_cmd):
         """Get completion suggestions for a partial command"""
-        # First try the CLI command method
-        completions = self._get_completions_cli_command(partial_cmd)
+        # Try question mark method first since it's more widely supported
+        completions = self._get_completions_question_mark(partial_cmd)
         
-        # If CLI command method failed or returned no results, try question mark method
-        if completions is None or not completions:
-            completions = self._get_completions_question_mark(partial_cmd)
+        # Only if question mark method fails or returns no results, try CLI command method
+        if not completions:
+            completions = self._get_completions_cli_command(partial_cmd)
+            if completions is None:
+                completions = []
         
         return completions
 
@@ -282,15 +292,18 @@ class SSHWrapperParamiko(SSHWrapper):
             if not text.strip():
                 return []
                 
+            print(f"[DEBUG] Getting completions for: {text}")
             # Send the completion request
             completions = self._get_completions(text)
             
             # Filter completions that match our text
             matches = [c for c in completions if c.startswith(text)]
+            print(f"[DEBUG] Final filtered matches: {matches}")
             
             # Sort and remove duplicates while preserving case
             return sorted(list(set(matches)), key=str.lower)
             
         except Exception as e:
+            print(f"[DEBUG] Completion error: {str(e)}")
             # If anything goes wrong, return empty list
             return [] 
