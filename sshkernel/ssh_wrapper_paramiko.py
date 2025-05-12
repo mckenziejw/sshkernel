@@ -131,6 +131,8 @@ class SSHWrapperParamiko(SSHWrapper):
         if not self.isconnected():
             raise Exception("Not connected")
 
+        # Clean the command
+        cmd = cmd.strip()
         print_function(f"[ssh] Sending command: {cmd}\n")
         
         # Send command with a newline
@@ -161,10 +163,15 @@ class SSHWrapperParamiko(SSHWrapper):
                     has_error = True
                 print_function(line + '\n')
             
+            # Ensure we're at a clean prompt after command execution
+            self._ensure_clean_prompt()
+            
             return 1 if has_error else 0
             
         except TimeoutError as e:
             print_function(f"[ssh] Error: {str(e)}\n")
+            # Ensure clean prompt on error
+            self._ensure_clean_prompt()
             return 1
 
     def close(self):
@@ -254,23 +261,32 @@ class SSHWrapperParamiko(SSHWrapper):
                 if not line.strip() or line.strip() == "Possible completions:":
                     continue
                 
-                # Split on whitespace and take first word
-                parts = line.strip().split()
+                # Split on whitespace and take first word, handling descriptions
+                parts = line.strip().split(None, 1)
                 if parts:
-                    word = parts[0]
+                    word = parts[0].strip()
                     # Only add if it's a valid completion (not a parameter hint)
                     if not word.startswith('<') and not word.endswith('>'):
+                        # Remove any trailing characters that might have been added
+                        word = word.rstrip('?')
                         completions.append(word)
             
-            # Clear any remaining ? from the buffer and ensure clean prompt
-            self._ensure_clean_prompt()
+            # Clear any remaining ? and buffer
+            self._shell_channel.send('\x15\n')  # Ctrl+U + newline to clear line
+            self._read_until_prompt()
+            self._shell_channel.send('\n')  # Extra newline to ensure clean state
+            self._read_until_prompt()
             
             print(f"[DEBUG] ? completions found: {completions}")
             return completions
             
         except Exception as e:
             print(f"[DEBUG] ? completion error: {str(e)}")
-            self._ensure_clean_prompt()  # Always ensure clean prompt on error
+            # Ensure we clean up even on error
+            self._shell_channel.send('\x15\n')  # Ctrl+U + newline
+            self._read_until_prompt()
+            self._shell_channel.send('\n')  # Extra newline
+            self._read_until_prompt()
             return []
 
     def _get_completions(self, partial_cmd):
@@ -293,11 +309,19 @@ class SSHWrapperParamiko(SSHWrapper):
                 return []
                 
             print(f"[DEBUG] Getting completions for: {text}")
+            # Clean the input text
+            text = text.strip()
+            
             # Send the completion request
             completions = self._get_completions(text)
             
-            # Filter completions that match our text
-            matches = [c for c in completions if c.startswith(text)]
+            # Filter completions that match our text and clean them
+            matches = []
+            for comp in completions:
+                comp = comp.strip()
+                if comp.startswith(text):
+                    matches.append(comp)
+            
             print(f"[DEBUG] Final filtered matches: {matches}")
             
             # Sort and remove duplicates while preserving case
