@@ -2,6 +2,7 @@ import os
 import re
 import time
 import paramiko
+from paramiko import SSHException
 from .ssh_wrapper import SSHWrapper
 
 class SSHWrapperParamiko(SSHWrapper):
@@ -76,12 +77,13 @@ class SSHWrapperParamiko(SSHWrapper):
         # Create a new channel for this command
         self._channel = self._client.get_transport().open_session()
         
-        # Get environment string
-        env_str = ' '.join([f'{k}={v}' for k, v in self._env.items()])
-        
-        # Execute command with environment
-        if env_str:
-            cmd = f"export {env_str}; {cmd}"
+        # Set environment variables directly on the channel
+        for key, value in self._env.items():
+            try:
+                self._channel.set_environment_variable(key, value)
+            except SSHException:
+                # If setting environment variables fails, continue anyway
+                pass
         
         print_function(f"[ssh] host = {self._host}\n")
         self._channel.exec_command(cmd)
