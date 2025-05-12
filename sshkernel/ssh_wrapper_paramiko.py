@@ -19,6 +19,8 @@ class SSHWrapperParamiko(SSHWrapper):
         self._host = ""
         self._cwd = None
         self._env = {}
+        self._shell_channel = None
+        self._shell_buffer = ""
 
     def connect(self, host):
         """Connect to remote host using SSH config"""
@@ -69,74 +71,73 @@ class SSHWrapperParamiko(SSHWrapper):
         self._env.update(self.envdelta_init)
         self._env['PAGER'] = 'cat'  # Prevent paging
 
+        # Set up interactive shell
+        self._shell_channel = self._client.invoke_shell()
+        # Wait for initial prompt
+        time.sleep(2)
+        self._read_until_prompt()
+
+    def _read_until_prompt(self, timeout=30):
+        """Read from shell until a prompt is found"""
+        buffer = ""
+        start_time = time.time()
+        
+        while True:
+            if self._shell_channel.recv_ready():
+                chunk = self._shell_channel.recv(4096).decode('utf-8', errors='replace')
+                buffer += chunk
+                
+                # Check for various Junos prompts
+                if re.search(r'[%>#]\s*$', buffer):
+                    return buffer
+                
+            if time.time() - start_time > timeout:
+                raise TimeoutError("Timeout waiting for prompt")
+                
+            time.sleep(0.1)
+
     def exec_command(self, cmd, print_function):
         """Execute command and stream output"""
         if not self.isconnected():
             raise Exception("Not connected")
 
-        # Create a new channel for this command
-        self._channel = self._client.get_transport().open_session()
+        # Send command
+        self._shell_channel.send(cmd + '\n')
         
-        # Set environment variables directly on the channel
-        for key, value in self._env.items():
-            try:
-                self._channel.set_environment_variable(key, value)
-            except SSHException:
-                # If setting environment variables fails, continue anyway
-                pass
+        # Read response
+        output = self._read_until_prompt()
         
-        print_function(f"[ssh] host = {self._host}\n")
-        self._channel.exec_command(cmd)
+        # Remove the command echo and trailing prompt
+        lines = output.split('\n')
+        if lines and lines[0].strip() == cmd.strip():
+            lines = lines[1:]
+        if lines and re.search(r'[%>#]\s*$', lines[-1]):
+            lines = lines[:-1]
+        
+        # Print output
+        for line in lines:
+            print_function(line + '\n')
 
-        # Read output
-        while True:
-            # Read from stdout
-            while self._channel.recv_ready():
-                data = self._channel.recv(4096).decode('utf-8', errors='replace')
-                if data:
-                    print_function(data)
-            
-            # Read from stderr
-            while self._channel.recv_stderr_ready():
-                data = self._channel.recv_stderr(4096).decode('utf-8', errors='replace')
-                if data:
-                    print_function(data)
-            
-            # Check if the channel is closed and no more data
-            if self._channel.exit_status_ready():
-                # Do one final read from both streams
-                while self._channel.recv_ready():
-                    data = self._channel.recv(4096).decode('utf-8', errors='replace')
-                    if data:
-                        print_function(data)
-                
-                while self._channel.recv_stderr_ready():
-                    data = self._channel.recv_stderr(4096).decode('utf-8', errors='replace')
-                    if data:
-                        print_function(data)
-                
-                break
-            
-            time.sleep(0.1)
-
-        exit_code = self._channel.recv_exit_status()
-        self._channel = None
-        return exit_code
+        return 0  # Since we can't reliably get exit codes in this mode
 
     def close(self):
         """Close the SSH connection"""
         self.__connected = False
-        if self._channel:
-            self._channel.close()
+        if self._shell_channel:
+            self._shell_channel.close()
         if self._client:
             self._client.close()
-        self._channel = None
+        self._shell_channel = None
         self._client = None
 
     def interrupt(self):
         """Interrupt the current command"""
-        if self._channel:
-            self._channel.close()
+        if self._shell_channel:
+            # Send Ctrl+C
+            self._shell_channel.send('\x03')
+            time.sleep(0.1)
+            # Clear any remaining output
+            self._read_until_prompt()
 
     def isconnected(self):
         """Check if connected to remote host"""
