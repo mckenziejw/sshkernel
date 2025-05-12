@@ -239,31 +239,31 @@ class SSHWrapperParamiko(SSHWrapper):
             self._ensure_clean_prompt()  # Always ensure clean prompt on error
             return None  # Signal to try fallback method
 
-    def _get_completions_question_mark(self, partial_cmd):
+    def _get_completions_question_mark(self, partial_cmd, print_function=print):
         """Get completions using question mark method"""
         try:
             # First ensure we're at a clean prompt
             self._ensure_clean_prompt()
             
             # Send the partial command with ?
-            print(f"[DEBUG] Trying ? completion with: {partial_cmd}?")
+            print_function(f"[DEBUG] Trying ? completion with: {partial_cmd}?")
             self._shell_channel.send(partial_cmd + '?\n')
             
             # Read the completion suggestions
             output = self._read_until_prompt()
-            print(f"[DEBUG] ? completion output:\n{output}")
+            print_function(f"[DEBUG] ? completion output:\n{output}")
             
             # Parse the completion output
             lines = output.split('\n')
             completions = []
             
-            print(f"[DEBUG] Processing {len(lines)} lines")
+            print_function(f"[DEBUG] Processing {len(lines)} lines")
             # Skip the first line (echo of our command) and last line (prompt)
             for i, line in enumerate(lines[1:-1]):
-                print(f"[DEBUG] Processing line {i+1}: '{line}'")
+                print_function(f"[DEBUG] Processing line {i+1}: '{line}'")
                 # Skip empty lines and completion headers
                 if not line.strip():
-                    print(f"[DEBUG] Skipping empty line")
+                    print_function(f"[DEBUG] Skipping empty line")
                     continue
                 if any(x in line for x in [
                     "Possible completions:",
@@ -271,17 +271,17 @@ class SSHWrapperParamiko(SSHWrapper):
                     "[",  # Skip hierarchy indicators
                     ">"   # Skip command continuation indicators
                 ]):
-                    print(f"[DEBUG] Skipping header/indicator line: {line}")
+                    print_function(f"[DEBUG] Skipping header/indicator line: {line}")
                     continue
                 
                 # Split on whitespace and take first word, handling descriptions
                 parts = line.strip().split(None, 1)
                 if parts:
                     word = parts[0].strip()
-                    print(f"[DEBUG] Found word: '{word}'")
+                    print_function(f"[DEBUG] Found word: '{word}'")
                     # Only add if it's a valid completion (not a parameter hint)
                     if word.startswith('<') or word.endswith('>'):
-                        print(f"[DEBUG] Skipping parameter hint: {word}")
+                        print_function(f"[DEBUG] Skipping parameter hint: {word}")
                         continue
 
                     # Remove any trailing characters that might have been added
@@ -291,7 +291,7 @@ class SSHWrapperParamiko(SSHWrapper):
                     base_cmd = partial_cmd.rsplit(' ', 1)[0] if ' ' in partial_cmd else ''
                     current_word = partial_cmd.rsplit(' ', 1)[-1] if ' ' in partial_cmd else partial_cmd
                     
-                    print(f"[DEBUG] Base command: '{base_cmd}', Current word: '{current_word}'")
+                    print_function(f"[DEBUG] Base command: '{base_cmd}', Current word: '{current_word}'")
                     
                     # In configuration mode, we might get full paths like "interfaces ge-0/0/0"
                     # Split these into parts and check if any part matches our current word
@@ -303,12 +303,12 @@ class SSHWrapperParamiko(SSHWrapper):
                             break
                     
                     if matching_part:
-                        print(f"[DEBUG] Found matching part: '{matching_part}'")
+                        print_function(f"[DEBUG] Found matching part: '{matching_part}'")
                         if base_cmd:
                             full_completion = f"{base_cmd} {matching_part}"
                         else:
                             full_completion = matching_part
-                        print(f"[DEBUG] Adding completion: '{full_completion}'")
+                        print_function(f"[DEBUG] Adding completion: '{full_completion}'")
                         completions.append(full_completion)
             
             # Clear any remaining ? and buffer
@@ -317,11 +317,11 @@ class SSHWrapperParamiko(SSHWrapper):
             self._shell_channel.send('\n')  # Extra newline to ensure clean state
             self._read_until_prompt()
             
-            print(f"[DEBUG] Final completions: {completions}")
+            print_function(f"[DEBUG] Final completions: {completions}")
             return completions
             
         except Exception as e:
-            print(f"[DEBUG] ? completion error: {str(e)}")
+            print_function(f"[DEBUG] ? completion error: {str(e)}")
             # Ensure we clean up even on error
             self._shell_channel.send('\x15\n')  # Ctrl+U + newline
             self._read_until_prompt()
@@ -342,35 +342,35 @@ class SSHWrapperParamiko(SSHWrapper):
         
         return completions
 
-    def get_completions(self, text):
+    def get_completions(self, text, print_function=print):
         """Get completion suggestions for the current text"""
         try:
             if not text.strip():
                 return []
                 
-            print(f"[DEBUG] Getting completions for: '{text}'")
+            print_function(f"[DEBUG] Getting completions for: '{text}'")
             # Clean the input text
             text = text.strip()
             
             # Get all possible completions
-            completions = self._get_completions(text)
+            completions = self._get_completions(text, print_function)
             
             # Return all completions that extend the current text
             matches = []
             for comp in completions:
                 comp = comp.strip()
-                print(f"[DEBUG] Checking completion: '{comp}' against text: '{text}'")
+                print_function(f"[DEBUG] Checking completion: '{comp}' against text: '{text}'")
                 # Only add completions that extend the current text
                 if comp.startswith(text) and comp != text:
-                    print(f"[DEBUG] Adding match: '{comp}'")
+                    print_function(f"[DEBUG] Adding match: '{comp}'")
                     matches.append(comp)
             
-            print(f"[DEBUG] Final filtered matches: {matches}")
+            print_function(f"[DEBUG] Final filtered matches: {matches}")
             
             # Sort and remove duplicates while preserving case
             return sorted(list(set(matches)), key=str.lower)
             
         except Exception as e:
-            print(f"[DEBUG] Completion error: {str(e)}")
+            print_function(f"[DEBUG] Completion error: {str(e)}")
             # If anything goes wrong, return empty list
             return [] 

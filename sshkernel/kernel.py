@@ -170,8 +170,12 @@ class SSHKernel(MetaKernel):
         token = tokens[-1]
         token_start = code_current.rindex(token)
 
+        self.Print(f"[DEBUG] Attempting completion for command: '{command_context}'")
+
         # Get completions from the SSH wrapper
-        matches = self.sshwrapper.get_completions(command_context)
+        matches = self.sshwrapper.get_completions(command_context, self.Print)
+
+        self.Print(f"[DEBUG] Got raw matches: {matches}")
 
         if matches:
             # Filter matches to only those that extend the current token
@@ -181,9 +185,11 @@ class SSHKernel(MetaKernel):
                     # Extract just the completion part (don't include the token)
                     completion = match[len(command_context):].lstrip()
                     if completion:
+                        self.Print(f"[DEBUG] Adding completion: '{completion}'")
                         valid_matches.append(completion)
 
             if valid_matches:
+                self.Print(f"[DEBUG] Final valid matches: {valid_matches}")
                 return {
                     "matches": valid_matches,
                     "cursor_start": cursor_pos,  # Start from cursor position
@@ -192,6 +198,7 @@ class SSHKernel(MetaKernel):
                     "status": "ok",
                 }
 
+        self.Print("[DEBUG] No valid completions found")
         return default
 
     def restart_kernel(self):
