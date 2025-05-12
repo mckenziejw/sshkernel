@@ -157,7 +157,7 @@ class SSHKernel(MetaKernel):
 
         # Get the current line up to the cursor
         code_current = code[:cursor_pos]
-        if not code_current or code_current[-1] == " ":
+        if not code_current:
             return default
 
         # Get the last token (word) that we're trying to complete
@@ -165,20 +165,32 @@ class SSHKernel(MetaKernel):
         if not tokens:
             return default
 
+        # Get the full command up to the cursor for context
+        command_context = " ".join(tokens)
         token = tokens[-1]
         token_start = code_current.rindex(token)
 
         # Get completions from the SSH wrapper
-        matches = self.sshwrapper.get_completions(token)
+        matches = self.sshwrapper.get_completions(command_context)
 
         if matches:
-            return {
-                "matches": matches,
-                "cursor_start": token_start,
-                "cursor_end": cursor_pos,
-                "metadata": dict(),
-                "status": "ok",
-            }
+            # Filter matches to only those that extend the current token
+            valid_matches = []
+            for match in matches:
+                if match.startswith(command_context) and match != command_context:
+                    # Only add the part that would be completed
+                    completion = match[len(command_context):].lstrip()
+                    if completion:
+                        valid_matches.append(token + completion)
+
+            if valid_matches:
+                return {
+                    "matches": valid_matches,
+                    "cursor_start": token_start,
+                    "cursor_end": cursor_pos,
+                    "metadata": dict(),
+                    "status": "ok",
+                }
 
         return default
 

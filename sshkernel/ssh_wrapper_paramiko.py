@@ -269,9 +269,9 @@ class SSHWrapperParamiko(SSHWrapper):
                     if not word.startswith('<') and not word.endswith('>'):
                         # Remove any trailing characters that might have been added
                         word = word.rstrip('?')
-                        # For partial matches, keep the full word
-                        if word.startswith(partial_cmd):
-                            completions.append(word)
+                        # Get the full command by combining context and completion
+                        full_cmd = partial_cmd.rsplit(' ', 1)[0] + ' ' + word
+                        completions.append(full_cmd.strip())
             
             # Clear any remaining ? and buffer
             self._shell_channel.send('\x15\n')  # Ctrl+U + newline to clear line
@@ -317,13 +317,10 @@ class SSHWrapperParamiko(SSHWrapper):
             # Get all possible completions
             completions = self._get_completions(text)
             
-            # Return all completions that match the text prefix
-            # This allows Jupyter to handle the completion display
+            # Return all completions that extend the current text
             matches = []
             for comp in completions:
                 comp = comp.strip()
-                # Only match if the completion starts with our text
-                # and the completion is different from our text
                 if comp.startswith(text) and comp != text:
                     matches.append(comp)
             
