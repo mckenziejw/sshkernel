@@ -90,17 +90,31 @@ class SSHWrapperParamiko(SSHWrapper):
 
         # Read output
         while True:
-            if self._channel.recv_ready():
-                data = self._channel.recv(1024).decode('utf-8', errors='replace')
+            # Read from stdout
+            while self._channel.recv_ready():
+                data = self._channel.recv(4096).decode('utf-8', errors='replace')
                 if data:
                     print_function(data)
             
-            if self._channel.recv_stderr_ready():
-                data = self._channel.recv_stderr(1024).decode('utf-8', errors='replace')
+            # Read from stderr
+            while self._channel.recv_stderr_ready():
+                data = self._channel.recv_stderr(4096).decode('utf-8', errors='replace')
                 if data:
                     print_function(data)
             
+            # Check if the channel is closed and no more data
             if self._channel.exit_status_ready():
+                # Do one final read from both streams
+                while self._channel.recv_ready():
+                    data = self._channel.recv(4096).decode('utf-8', errors='replace')
+                    if data:
+                        print_function(data)
+                
+                while self._channel.recv_stderr_ready():
+                    data = self._channel.recv_stderr(4096).decode('utf-8', errors='replace')
+                    if data:
+                        print_function(data)
+                
                 break
             
             time.sleep(0.1)
