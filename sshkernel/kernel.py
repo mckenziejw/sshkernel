@@ -140,6 +140,7 @@ class SSHKernel(MetaKernel):
 
     # Implement ipykernel method
     def do_complete(self, code, cursor_pos):
+        """Handle code completion requests."""
         default = {
             "matches": [],
             "cursor_start": 0,
@@ -147,59 +148,39 @@ class SSHKernel(MetaKernel):
             "metadata": dict(),
             "status": "ok",
         }
+
         try:
             self.assert_connected()
         except SSHKernelNotConnectedException:
-            # TODO: Error() in `do_complete` not shown in notebook
             self.log.error("not connected")
             return default
 
+        # Get the current line up to the cursor
         code_current = code[:cursor_pos]
         if not code_current or code_current[-1] == " ":
             return default
 
+        # Get the last token (word) that we're trying to complete
         tokens = code_current.replace(";", " ").split()
         if not tokens:
             return default
 
         token = tokens[-1]
+        token_start = code_current.rindex(token)
 
-        if token[0] == "$":
-            # complete variables
+        # Get completions from the SSH wrapper
+        matches = self.sshwrapper.get_completions(token)
 
-            # strip leading $
-            cmd = "compgen -A arrayvar -A export -A variable %s" % token[1:]
-            completions = set()
+        if matches:
+            return {
+                "matches": matches,
+                "cursor_start": token_start,
+                "cursor_end": cursor_pos,
+                "metadata": dict(),
+                "status": "ok",
+            }
 
-            def callback(line):
-                completions.add(line.rstrip())
-
-            self.sshwrapper.exec_command(cmd, callback)
-
-            # append matches including leading $
-            matches = ["$" + c for c in completions]
-        else:
-            # complete functions and builtins
-            cmd = "compgen -cdfa %s" % token
-            matches = set()
-
-            def callback(line):
-                matches.add(line.rstrip())
-
-            self.sshwrapper.exec_command(cmd, callback)
-
-        matches = [m for m in matches if m.startswith(token)]
-
-        cursor_start = cursor_pos - len(token)
-        cursor_end = cursor_pos
-
-        return dict(
-            matches=sorted(matches),
-            cursor_start=cursor_start,
-            cursor_end=cursor_end,
-            metadata=dict(),
-            status="ok",
-        )
+        return default
 
     def restart_kernel(self):
         # TODO: log message
