@@ -190,12 +190,51 @@ class SSHWrapperParamiko(SSHWrapper):
         """Check if connected to remote host"""
         return self.__connected 
 
-    def _get_completions(self, partial_cmd):
-        """Get completion suggestions for a partial command"""
+    def _get_completions_cli_command(self, partial_cmd):
+        """Get completions using 'show cli complete-on' command"""
         try:
-            # Use 'show cli complete-on' command instead of '?'
+            # Send completion command without quotes
             completion_cmd = f'show cli complete-on "{partial_cmd}"'
             self._shell_channel.send(completion_cmd + '\n')
+            
+            output = self._read_until_prompt()
+            lines = output.split('\n')
+            completions = []
+            
+            # Skip the first line (echo of our command) and last line (prompt)
+            for line in lines[1:-1]:
+                if not line.strip() or line.strip() == "Possible completions:":
+                    continue
+                    
+                # Split on first whitespace sequence
+                parts = line.strip().split(None, 1)
+                if parts:
+                    word = parts[0]
+                    # Only add if it's a valid completion (not a parameter hint)
+                    if not word.startswith('<') and not word.endswith('>'):
+                        completions.append(word)
+            
+            # Ensure we're at a clean prompt
+            self._ensure_clean_prompt()
+            
+            # If we got completions and no error message, return them
+            if completions and not any("error: unknown command" in line.lower() for line in lines):
+                return completions
+            
+            return None  # Signal to try fallback method
+            
+        except Exception as e:
+            self._ensure_clean_prompt()  # Always ensure clean prompt on error
+            return None  # Signal to try fallback method
+
+    def _get_completions_question_mark(self, partial_cmd):
+        """Get completions using question mark method"""
+        try:
+            # First ensure we're at a clean prompt
+            self._ensure_clean_prompt()
+            
+            # Send the partial command with ?
+            self._shell_channel.send(partial_cmd + '?\n')
             
             # Read the completion suggestions
             output = self._read_until_prompt()
@@ -206,41 +245,51 @@ class SSHWrapperParamiko(SSHWrapper):
             
             # Skip the first line (echo of our command) and last line (prompt)
             for line in lines[1:-1]:
-                # Skip empty lines
-                if not line.strip():
+                if not line.strip() or line.strip() == "Possible completions:":
                     continue
                 
-                # The output format is typically:
-                # Possible completions:
-                #   word1     Description1
-                #   word2     Description2
-                if line.strip() == "Possible completions:":
-                    continue
-                    
-                # Split on first whitespace sequence
-                parts = line.strip().split(None, 1)
+                # Split on whitespace and take first word
+                parts = line.strip().split()
                 if parts:
-                    # Add the completion word (not the description)
                     word = parts[0]
+                    # Only add if it's a valid completion (not a parameter hint)
                     if not word.startswith('<') and not word.endswith('>'):
                         completions.append(word)
+            
+            # Clear any remaining ? from the buffer and ensure clean prompt
+            self._ensure_clean_prompt()
             
             return completions
             
         except Exception as e:
+            self._ensure_clean_prompt()  # Always ensure clean prompt on error
             return []
+
+    def _get_completions(self, partial_cmd):
+        """Get completion suggestions for a partial command"""
+        # First try the CLI command method
+        completions = self._get_completions_cli_command(partial_cmd)
+        
+        # If CLI command method failed or returned no results, try question mark method
+        if completions is None or not completions:
+            completions = self._get_completions_question_mark(partial_cmd)
+        
+        return completions
 
     def get_completions(self, text):
         """Get completion suggestions for the current text"""
         try:
+            if not text.strip():
+                return []
+                
             # Send the completion request
             completions = self._get_completions(text)
             
             # Filter completions that match our text
             matches = [c for c in completions if c.startswith(text)]
             
-            # Sort and remove duplicates
-            return sorted(list(set(matches)))
+            # Sort and remove duplicates while preserving case
+            return sorted(list(set(matches)), key=str.lower)
             
         except Exception as e:
             # If anything goes wrong, return empty list
