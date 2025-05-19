@@ -1,7 +1,8 @@
-# SSH Kernel
+# SSH Kernel (Juniper Edition)
 
-SSH Kernel is a Jupyter kernel specialized in executing commands remotely
-with [paramiko](http://www.paramiko.org/) SSH client.
+This is a custom fork of the [original SSH Kernel project](https://github.com/NII-cloud-operation/sshkernel), modified specifically to interface with Juniper network devices. The kernel provides enhanced support for Juniper CLI commands, command completion, and configuration modes.
+
+SSH Kernel is a Jupyter kernel specialized in executing commands remotely with [paramiko](http://www.paramiko.org/) SSH client.
 
 ![](doc/screenshot.png)
 
@@ -17,24 +18,36 @@ Host OS (running notebook server):
 * Ubuntu 18.04+
 * Windows 10 WSL (Ubuntu 18.04+)
 
-Target OS (running sshd):
+Target Devices:
 
-* Ubuntu16.04+
-* CentOS6+
+* Juniper network devices with SSH access
+* Standard Linux/Unix systems (Ubuntu 16.04+, CentOS 6+)
 
 ## Installation
 
-Please adopt installation option depends on your Python environment.
+Since this is a custom fork, you'll need to install it from source:
 
+1. Clone the repository:
+```bash
+git clone <repository_url>
+cd sshkernel
 ```
-pip install -U sshkernel
+
+2. Install in development mode with dependencies:
+```bash
+pip install -e .
+```
+
+3. Install the kernel specification:
+```bash
 python -m sshkernel install [--user|--sys-prefix]
-# `python -m sshkernel install --help` for more information.
+# Use --user for user-specific installation (recommended)
+# Use --sys-prefix for environment/virtualenv-specific installation
 ```
 
 Verify that sshkernel is installed correctly by listing available Jupyter kernel specs:
 
-```
+```bash
 $ jupyter kernelspec list
 Available kernels:
   python3        /tmp/env/share/jupyter/kernels/python3
@@ -43,15 +56,9 @@ Available kernels:
   (Path differs depends on environment)
 ```
 
-To upgrade:
-
-```
-pip install --upgrade sshkernel
-```
-
 To uninstall:
 
-```
+```bash
 jupyter kernelspec remove ssh
 pip uninstall sshkernel
 ```
@@ -60,20 +67,15 @@ pip uninstall sshkernel
 
 The latest version of this library is mainly developed with Python 3.7.3 installed with `pyenv`.
 
-CI is performed with Python3.6 and 3.7 on [Debian based container without conda](https://hub.docker.com/_/python),
-and manual test is performed with Ubuntu based container with conda, which derived from [official Jupyter Notebook stack](https://hub.docker.com/r/jupyter/minimal-notebook/).
-`Anaconda` on Windows 10 is also confirmed, but is less tested in our development/production.
-
 ## Getting Started
 
-Basic examples of using SSH Kernel:
+Basic examples of using SSH Kernel with Juniper devices:
 
 * [Getting Started](https://github.com/NII-cloud-operation/sshkernel/blob/master/examples/getting-started.ipynb)
-* [Getting Started (in Japanese)](https://github.com/NII-cloud-operation/sshkernel/blob/master/examples/getting-started-ja.ipynb)
 
 ## Configuration
 
-SSH Kernel obtains configuration data from `~/.ssh/config` file to connect servers.
+SSH Kernel obtains configuration data from `~/.ssh/config` file to connect to devices.
 
 Possible keywords are as follows:
 
@@ -92,49 +94,42 @@ Possible keywords are as follows:
 
 ### Configuration examples
 
-Example1:
+Example for Juniper device:
 
 ```
 [~/.ssh/config]
-Host myserver
-  HostName myserver.example.com
+Host juniper-switch
+  HostName switch.example.com
   User admin
-  Port 2222
-  IdentityFile ~/.ssh/id_rsa_myserver
-  ForwardAgent yes
+  Port 22
+  IdentityFile ~/.ssh/id_rsa_juniper
 
 Host *
-  User ubuntu
-```
-
-Example2:
-
-```
-[~/.ssh/config]
-Host another-server
-  HostName 192.0.2.1
+  User admin
 ```
 
 Minimal example:
 
 ```
 [~/.ssh/config]
-
-# If you specify a FQDN / IP address, same login user, and discoverable private key,
-# no configuration needed
+Host router
+  HostName 192.0.2.1
 ```
 
-See also a tutorial above in detail.
+## Juniper-Specific Features
 
-## Parameterized run
+This fork includes several enhancements for working with Juniper devices:
 
-See [examples/parameterized-notebook](https://github.com/NII-cloud-operation/sshkernel/blob/master/examples/parameterized-notebook.ipynb).
+* Support for Juniper CLI command completion
+* Handling of configuration modes (`configure`, `edit`, etc.)
+* Support for both operational and configuration commands
+* Proper handling of Juniper-style prompts and output formatting
 
 ## Limitations
 
 * As Jupyter Notebook has limitation to handle `stdin`,
-  you may need to change some server configuration and commands to avoid *interactive input*.
-  * e.g. use publickey-authentication instead of password, enable NOPASSWD for sudo, use `expect`
+  you may need to change some device configuration and commands to avoid *interactive input*.
+  * e.g. use publickey-authentication instead of password
 * Some shell variables are different from normal interactive shell
   * e.g. `$?`, `$$`
 
